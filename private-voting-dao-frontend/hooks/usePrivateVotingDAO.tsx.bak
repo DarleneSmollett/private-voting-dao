@@ -1,0 +1,334 @@
+"use client";
+
+import { useState, useCallback, useEffect } from "react";
+import { ethers } from "ethers";
+import { useMetaMaskEthersSigner } from "./metamask/useMetaMaskEthersSigner";
+import { useInMemoryStorage } from "./useInMemoryStorage";
+import { FhevmDecryptionSignature } from "@/fhevm/FhevmDecryptionSignature";
+import type { Proposal, VoteData, DecryptedResults } from "@/lib/types";
+
+export function usePrivateVotingDAO(parameters: {
+  contractAddress: `0x${string}` | undefined;
+  contractABI: any;
+}) {
+  const { contractAddress, contractABI } = parameters;
+  const {
+    signer,
+    readonlyProvider,
+    fhevmInstance,
+    isFhevmLoading,
+    account,
+    chainId,
+    sameChainRef,
+    sameSignerRef,
+  } = useMetaMaskEthersSigner();
+  
+  const storage = useInMemoryStorage();
+
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  // Get contract instance
+  const getReadContract = useCallback(() => {
+    if (!contractAddress || !readonlyProvider) return undefined;
+    return new ethers.Contract(contractAddress, contractABI, readonlyProvider);
+  }, [contractAddress, contractABI, readonlyProvider]);
+
+  const getWriteContract = useCallback(() => {
+    if (!contractAddress || !signer) return undefined;
+    return new ethers.Contract(contractAddress, contractABI, signer);
+  }, [contractAddress, contractABI, signer]);
+
+  // Load all proposals
+  const loadProposals = useCallback(async () => {
+    const contract = getReadContract();
+    if (!contract) return;
+
+    try {
+      setIsLoading(true);
+      const count = await contract.proposalCount();
+      const proposalList: Proposal[] = [];
+
+      for (let i = 1; i <= Number(count); i++) {
+        const proposal = await contract.getProposal(i);
+        proposalList.push({
+          id: proposal.id,
+          title: proposal.title,
+          description: proposal.description,
+          proposer: proposal.proposer,
+          startTime: proposal.startTime,
+          endTime: proposal.endTime,
+          optionCount: Number(proposal.optionCount),
+          resultStrategy: Number(proposal.resultStrategy),
+          status: Number(proposal.status),
+          resultsRevealed: proposal.resultsRevealed,
+        });
+      }
+
+      setProposals(proposalList);
+    } catch (e: any) {
+      setMessage(`Failed to load proposals: ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getReadContract]);
+
+  // Create proposal
+  const createProposal = useCallback(
+    async (
+      title: string,
+      description: string,
+      optionCount: number,
+      durationSeconds: number,
+      resultStrategy: number
+    ) => {
+      const contract = getWriteContract();
+      if (!contract || !signer) {
+        setMessage("Please connect wallet");
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setMessage("Creating proposal...");
+
+        const tx = await contract.createProposal(
+          title,
+          description,
+          optionCount,
+          durationSeconds,
+          resultStrategy
+        );
+
+        setMessage("Waiting for transaction...");
+        await tx.wait();
+
+        setMessage("Proposal created successfully!");
+        await loadProposals();
+      } catch (e: any) {
+        setMessage(`Failed to create proposal: ${e.message}`);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [getWriteContract, signer, loadProposals]
+  );
+
+  // Cast vote
+  const castVote = useCallback(
+    async (proposalId: number, voteData: VoteData) => {
+      const contract = getWriteContract();
+      if (!contract || !signer || !fhevmInstance) {
+        setMessage("Please wait for wallet and FHEVM to be ready");
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setMessage("Encrypting vote...");
+
+        // Encrypt option
+        const encryptedOption = await fhevmInstance
+          .createEncryptedInput(contractAddress!, signer.address)
+          .add8(voteData.option)
+          .encrypt();
+
+        // Encrypt weight
+        const encryptedWeight = await fhevmInstance
+          .createEncryptedInput(contractAddress!, signer.address)
+          .add8(voteData.weight)
+          .encrypt();
+
+        setMessage("Submitting vote...");
+
+        const tx = await contract.castVote(
+          proposalId,
+          encryptedOption.handles[0],
+          encryptedWeight.handles[0],
+          encryptedOption.inputProof,
+          encryptedWeight.inputProof
+        );
+
+        setMessage("Waiting for transaction...");
+        await tx.wait();
+
+        setMessage("Vote cast successfully!");
+        await loadProposals();
+      } catch (e: any) {
+        setMessage(`Failed to cast vote: ${e.message}`);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [getWriteContract, signer, fhevmInstance, contractAddress, loadProposals]
+  );
+
+  // End proposal
+  const endProposal = useCallback(
+    async (proposalId: number) => {
+      const contract = getWriteContract();
+      if (!contract || !signer) {
+        setMessage("Please connect wallet");
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setMessage("Ending proposal...");
+
+        const tx = await contract.endProposal(proposalId);
+        await tx.wait();
+
+        setMessage("Proposal ended successfully!");
+        await loadProposals();
+      } catch (e: any) {
+        setMessage(`Failed to end proposal: ${e.message}`);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [getWriteContract, signer, loadProposals]
+  );
+
+  // Allow results access
+  const allowResultsAccess = useCallback(
+    async (proposalId: number) => {
+      const contract = getWriteContract();
+      if (!contract || !signer) {
+        setMessage("Please connect wallet");
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setMessage("Requesting results access...");
+
+        const tx = await contract.allowResultsAccess(proposalId);
+        await tx.wait();
+
+        setMessage("Results access granted!");
+        await loadProposals();
+      } catch (e: any) {
+        setMessage(`Failed to allow results access: ${e.message}`);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [getWriteContract, signer, loadProposals]
+  );
+
+  // Decrypt results
+  const decryptResults = useCallback(
+    async (proposalId: number, optionCount: number): Promise<DecryptedResults | undefined> => {
+      const contract = getReadContract();
+      if (!contract || !fhevmInstance || !signer) {
+        setMessage("Please wait for all components to be ready");
+        return undefined;
+      }
+
+      try {
+        setIsLoading(true);
+        setMessage("Getting decryption signature...");
+
+        const sig = await FhevmDecryptionSignature.loadOrSign(
+          fhevmInstance,
+          [contractAddress!],
+          signer,
+          storage
+        );
+
+        if (!sig) {
+          setMessage("Failed to get decryption signature");
+          return undefined;
+        }
+
+        setMessage("Decrypting results...");
+
+        // Get total voters handle
+        const totalVotersHandle = await contract.getTotalVoters(proposalId);
+
+        // Get option votes handles
+        const handles: Array<{ handle: string; contractAddress: string }> = [
+          { handle: totalVotersHandle, contractAddress: contractAddress! },
+        ];
+
+        for (let i = 0; i < optionCount; i++) {
+          const optionHandle = await contract.getOptionVotes(proposalId, i);
+          handles.push({ handle: optionHandle, contractAddress: contractAddress! });
+        }
+
+        // Decrypt all handles
+        const decryptedValues = await fhevmInstance.userDecrypt(
+          handles,
+          sig.privateKey,
+          sig.publicKey,
+          sig.signature,
+          sig.contractAddresses,
+          sig.userAddress,
+          sig.startTimestamp,
+          sig.durationDays
+        );
+
+        const totalVoters = BigInt(decryptedValues[totalVotersHandle] as bigint);
+        const optionVotes: bigint[] = [];
+
+        for (let i = 0; i < optionCount; i++) {
+          const optionHandle = await contract.getOptionVotes(proposalId, i);
+          optionVotes.push(BigInt(decryptedValues[optionHandle] as bigint));
+        }
+
+        setMessage("Results decrypted successfully!");
+
+        return {
+          totalVoters,
+          optionVotes,
+        };
+      } catch (e: any) {
+        setMessage(`Failed to decrypt results: ${e.message}`);
+        return undefined;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [getReadContract, fhevmInstance, signer, contractAddress, storage]
+  );
+
+  // Check if user has voted
+  const hasVoted = useCallback(
+    async (proposalId: number): Promise<boolean> => {
+      const contract = getReadContract();
+      if (!contract || !account) return false;
+
+      try {
+        return await contract.hasVoted(proposalId, account);
+      } catch {
+        return false;
+      }
+    },
+    [getReadContract, account]
+  );
+
+  // Auto-load proposals when contract is ready
+  useEffect(() => {
+    if (contractAddress && readonlyProvider) {
+      loadProposals();
+    }
+  }, [contractAddress, readonlyProvider, loadProposals]);
+
+  return {
+    proposals,
+    isLoading,
+    message,
+    isFhevmLoading,
+    canInteract: !!signer && !!fhevmInstance && !isFhevmLoading,
+    createProposal,
+    castVote,
+    endProposal,
+    allowResultsAccess,
+    decryptResults,
+    hasVoted,
+    loadProposals,
+  };
+}
+

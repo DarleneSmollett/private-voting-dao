@@ -1,0 +1,16 @@
+import { Eip1193Provider } from "ethers";
+
+export interface EIP6963ProviderInfo {
+  rdns: string;
+  uuid: string;
+  name: string;
+  icon: string;
+}
+
+export interface EIP6963ProviderDetail {
+  info: EIP6963ProviderInfo;
+  provider: Eip1193Provider;
+}
+
+export type EIP6963AnnounceProviderEvent = CustomEvent<EIP6963ProviderDetail>;
+
