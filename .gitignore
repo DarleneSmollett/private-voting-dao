@@ -1,0 +1,80 @@
+# Root level gitignore for Private Voting DAO
+
+# Sensitive files
+.env
+.env.*
+*.env
+.pem
+*.key
+*.secret
+
+# Cursor rules
+.cursorrules
+
+# Video files
+*.mp4
+*.mov
+*.avi
+
+# Node modules (all subdirectories)
+**/node_modules
+
+# Build artifacts
+**/artifacts
+**/build
+**/dist
+**/.next
+**/out
+**/types
+
+# Cache
+**/cache
+**/.cache
+
+# Hardhat specific
+fhevmTemp
+**/deployments
+**/hardhat.config.ts.local
+
+# Coverage
+**/coverage
+**/.coverage_artifacts
+**/.coverage_cache
+**/.coverage_contracts
+coverage.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS files
+.DS_Store
+*.pem
+.pnp.*
+yarn.lock
+pnpm-lock.yaml
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+.idea
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp
+*.tmp
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+**/next-env.d.ts
+
+# Generated ABI files (keep them)
+# !**/abi/*.ts
