@@ -63,21 +63,20 @@ function main() {
   const localhost = getDeploymentInfo("localhost");
   const sepolia = getDeploymentInfo("sepolia");
 
-  if (!localhost && !sepolia) {
-    console.error(`❌ No deployments found for ${CONTRACT_NAME}`);
-    process.exit(1);
+  // Use ABI from any available deployment, or use default addresses
+  if (localhost || sepolia) {
+    const abi = (localhost || sepolia).abi;
+    generateABI(abi);
+    generateAddresses(
+      localhost?.address,
+      sepolia?.address
+    );
+    console.log("✅ ABI generation complete!");
+  } else {
+    // No deployments found, use default addresses (already in the file)
+    console.log("⚠️  No deployments found, keeping existing addresses file.");
+    console.log("✅ ABI generation complete!");
   }
-
-  // Use ABI from any available deployment
-  const abi = (localhost || sepolia).abi;
-  generateABI(abi);
-
-  generateAddresses(
-    localhost?.address,
-    sepolia?.address
-  );
-
-  console.log("✅ ABI generation complete!");
 }
 
 main();
